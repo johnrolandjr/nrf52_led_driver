@@ -132,6 +132,7 @@ class Conf
 		// ########### GENERIC ####################################################
 		const u32 numLeds_back = 13;
 		const u32 numLeds_side = 40;
+		const u32 numLeds_track = 206;
 };
 
 

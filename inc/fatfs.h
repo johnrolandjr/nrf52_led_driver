@@ -71,14 +71,15 @@ class fatfs{
         FILINFO fno;
         FIL file;
 
-        uint8_t * pBmpPixelData;
-
     public:
         fatfs(SPI_bus* pBus, uint8_t csPin);
         BYTE init(void);
         DRESULT	read_sectors(BYTE* pRx, DWORD startSector, BYTE sectorCnt);
+        int open_file();
 
         void loadPixelDataFromBmp(frameCycle* pAnimStruct, uint32_t imageIdx);
+        void readLine(char * pLine);
+        void rewindToBegin();
 
         int unittest(void);
     private:

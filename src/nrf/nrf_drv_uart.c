@@ -38,7 +38,9 @@
  * 
  */
 #include "sdk_common.h"
+
 #if NRF_MODULE_ENABLED(UART)
+
 #include "nrf_drv_uart.h"
 #include "nrf_assert.h"
 #include "nrf_drv_common.h"

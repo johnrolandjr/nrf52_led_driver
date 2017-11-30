@@ -43,10 +43,10 @@ void neo_out(ledPixel*, int);
 
 }
 
-LedModule::LedModule(LedWrapper* pLed, const char* name,  uint32_t numLedsInStrip_back, uint32_t numLedsInStrip_sides): Module(pLed, name)
+LedModule::LedModule(LedWrapper* pLed, const char* name,  uint32_t numLedsInStrip_track): Module(pLed, name)
 {
 	bStartTimerAtBeginning = true;
-	startingTimerPeriod = LED_PERIOD_TIME_MS;
+	startingTimerPeriod = UPDATE_LED_PERIOD_MS;
 
 	for(int a=0; a < NUM_LED_LINES; a++)
 	{
@@ -72,9 +72,16 @@ LedModule::LedModule(LedWrapper* pLed, const char* name,  uint32_t numLedsInStri
 		//NRF_GPIO->OUTSET = 1<<ledLinePinNums[a];
 	}
 
-	numLeds_back = numLedsInStrip_back*2;
-	numLeds_side = numLedsInStrip_sides*2;
-	numLedsTotal = numLeds_back + numLeds_side*2;
+	//configure buttons
+	NRF_GPIO->PIN_CNF[BUTTON_1] = ((uint32_t)NRF_GPIO_PIN_DIR_INPUT   << GPIO_PIN_CNF_DIR_Pos)
+		                                		  | ((uint32_t)NRF_GPIO_PIN_INPUT_CONNECT << GPIO_PIN_CNF_INPUT_Pos)
+												  | ((uint32_t)NRF_GPIO_PIN_NOPULL  << GPIO_PIN_CNF_PULL_Pos)
+												  | ((uint32_t)NRF_GPIO_PIN_S0S1 << GPIO_PIN_CNF_DRIVE_Pos)
+												  | ((uint32_t)NRF_GPIO_PIN_NOSENSE << GPIO_PIN_CNF_SENSE_Pos);
+
+	numLeds_back = 0;
+	numLeds_side = 0;
+	numLedsTotal = numLedsInStrip_track;
 	pLedStrip = new ledPixel[numLedsTotal];
 
 	if(numLedsTotal == 186)
@@ -113,85 +120,14 @@ LedModule::LedModule(LedWrapper* pLed, const char* name,  uint32_t numLedsInStri
 	pAccel = NULL;
 #else
 	pSpiBus = new SPI_bus(LED_SPI_MOSI, LED_SPI_MISO, LED_SPI_CLK);
+	pUart = new Serial(WS_LED_1);
 	pFs = new fatfs(pSpiBus, SD_CARD_CS);
 
-#endif
+	pAcc = NULL;
 
-	//initialize the button intterupt
-	/*
-	gpio_interrupt_init(MODE_BUTTON_PIN);
-	nrf_gpio_cfg_input(MODE_BUTTON_PIN, NRF_GPIO_PIN_NOPULL);
-	gpio_interrupt_enable();
-*/
-	//Set up digital microphone (PDM)
-	pdm_init();
+	#endif
 
-	/*
-	colorCycle *pColorCycle = new colorCycle();
-	if(pColorCycle != NULL)
-	{
-		pColorCycle->numColors = 80;
-		pColorCycle->currentColorIdx = 0;
-		pColorCycle->colors = new ledPixel[80];
-		for(unsigned int a=0; a < 10; a++){
-			uint32_t rgb = 25*a/10;
-			pColorCycle->colors[a] = { (uint8_t)rgb, 0 , 0 , 0};
-			pColorCycle->colors[19 - a] = { (uint8_t)rgb, 0 , 0 , 0};
-
-			pColorCycle->colors[a+20] = { 0,(uint8_t)rgb, 0, 0};
-			pColorCycle->colors[39 - a] = { 0,(uint8_t)rgb, 0, 0};
-
-			pColorCycle->colors[a+40] = { 0, 0, (uint8_t)rgb, 0};
-			pColorCycle->colors[59 - a] = { 0, 0, (uint8_t)rgb, 0};
-
-			pColorCycle->colors[a+60] = { (uint8_t)rgb,(uint8_t)rgb, (uint8_t)rgb, 0};
-			pColorCycle->colors[79 - a] = { (uint8_t)rgb,(uint8_t)rgb, (uint8_t)rgb, 0};
-		}
-	}
-	frameCycle *pCenteredRain = new frameCycle();
-	if(pCenteredRain !=NULL)
-	{
-		pCenteredRain->pPixels = chase_rainbow_120_60f;
-		pCenteredRain->numFrames = CHASE_RAINBOW_NUM_FRAMES;
-		pCenteredRain->numLeds = CHASE_RAINBOW_NUM_LEDS;
-		pCenteredRain->currentFrameIdx = 0;
-	}
-	movingPattern *pBasicDots = new movingPattern();
-	if(pBasicDots != NULL)
-	{
-		pBasicDots->pattern = new pixelWithPos[3];
-		pBasicDots->numPixels = 3;
-		for(uint32_t idx=0; idx<3; idx++)
-		{
-			pBasicDots->pattern[idx] = DOT_PATTERN;
-		}
-		pBasicDots->pattern[0].pos = {0,0};
-		pBasicDots->pattern[0].vel = {1,0};
-		pBasicDots->pattern[0].brg = {50,0,0,0};
-
-		pBasicDots->pattern[1].pos = {10,3};
-		pBasicDots->pattern[1].vel = {2,1};
-		pBasicDots->pattern[1].brg = {0,50,0,0};
-
-		pBasicDots->pattern[2].pos = {20,5};
-		pBasicDots->pattern[2].vel = {1,3};
-		pBasicDots->pattern[2].brg = {0,0,50,0};
-	}
-	*/
-
-	frameCycle *pSdImage = new frameCycle();
-	if(pSdImage != NULL)
-	{
-		pFs->loadPixelDataFromBmp(pSdImage, 0);
-	}
-
-	pCurrentSequence = new ledSequence();
-	if(pSdImage != NULL && pCurrentSequence != NULL)
-	{
-		pCurrentSequence->sequenceData.pFrameCycle = pSdImage;
-		pCurrentSequence->type = FRAME_CYCLE;
-		bUpdateLeds = true;
-	}
+	bUpdateLeds = true;
 }
 
 
@@ -201,173 +137,109 @@ void LedModule::BleEventHandler(ble_evt_t* bleEvent)
 }
 void LedModule::TimerEventHandler(u16 passedTime)
 {
-	if(bUpdateLeds)
-	{
-		if(pCurrentSequence != NULL)
-		{
-			switch(pCurrentSequence->type)
-			{
-				case (COLOR_CYCLE):{
-					colorCycle * pStruct;
-					pStruct = pCurrentSequence->sequenceData.pColorCycle;
-					ledPixel newColor = pStruct->colors[pStruct->currentColorIdx];
-					setAllLeds(newColor.r,newColor.g,newColor.b);
-					updateLeds();
-					pStruct->currentColorIdx++;
-					if(pStruct->currentColorIdx >= pStruct->numColors)
-					{
-						pStruct->currentColorIdx = 0;
-					}
-				}break;
-				case (FRAME_CYCLE):{
-					frameCycle * pStruct;
-					pStruct = pCurrentSequence->sequenceData.pFrameCycle;
-					uint32_t pixelIdx = pStruct->currentFrameIdx*3*pStruct->numLeds;
-					setLeds((uint8_t *)&pStruct->pPixels[pixelIdx], pStruct->numLeds);
-					updateLeds();
-					pStruct->currentFrameIdx++;
-					if(pStruct->currentFrameIdx >= pStruct->numFrames)
-					{
-						pStruct->currentFrameIdx = 0;
-					}
-				}break;
-				case (MOVING_PATTERN):{
-					movingPattern * pStruct;
-					pStruct = pCurrentSequence->sequenceData.pMovePatt;
-					clearScreen();
-					for(uint32_t ledIdx=0; ledIdx < pStruct->numPixels; ledIdx++)
-					{
-						uint32_t currRow,currCol;
-						currRow = pStruct->pattern[ledIdx].pos.row + pStruct->pattern[ledIdx].vel.row;
-						currCol = pStruct->pattern[ledIdx].pos.col + pStruct->pattern[ledIdx].vel.col;
-						currCol %= 8;
-						currRow %= FRONT_LENGTH;
-						switch(currCol)
-						{
-							case(0):
-							case(1):{
-								if( currRow > 12 )
-								{
-									if(currRow > 12 + BACK_BEG_LEN)
-									{
-										if(currCol%2 == 0)
-											*(pSuspenders.pBackR[LSIDEIDX][currRow-BACK_BEG_LEN]) = pStruct->pattern[ledIdx].brg;
-										else
-											*(pSuspenders.pBackR[RSIDEIDX][currRow-BACK_BEG_LEN]) = pStruct->pattern[ledIdx].brg;
-									}else{
-										*(pSuspenders.pBackR[currCol%2][currRow-BACK_BEG_LEN]) = pStruct->pattern[ledIdx].brg;
-									}
-								}
-							}break;
-							case(2):
-							case(3):{
-								*(pSuspenders.pFrontR[currCol%2][currRow]) = pStruct->pattern[ledIdx].brg;
-							}break;
-							case(4):
-							case(5):{
-								*(pSuspenders.pFrontL[currCol%2][currRow]) = pStruct->pattern[ledIdx].brg;
-							}break;
-							case(6):
-							case(7):{
-								if(currRow > 12 + BACK_BEG_LEN)
-								{
-									if(currCol%2 == 0)
-										*(pSuspenders.pBackL[LSIDEIDX][currRow-BACK_BEG_LEN]) = pStruct->pattern[ledIdx].brg;
-									else
-										*(pSuspenders.pBackL[RSIDEIDX][currRow-BACK_BEG_LEN]) = pStruct->pattern[ledIdx].brg;
-								}else{
-									*(pSuspenders.pBackL[currCol%2][currRow-BACK_BEG_LEN]) = pStruct->pattern[ledIdx].brg;
-								}
-							}break;
-						}
+	static int loopCount = 0;
+	static bool bOrange = false;
+	static int track_pos_idx = 0;
 
-						pStruct->pattern[ledIdx].pos.col = currCol;
-						pStruct->pattern[ledIdx].pos.row = currRow;
-					}
-					updateLeds();
-				}break;
-				case (MIC_UPDATE):
-				{
-					if(bFilledBuffer){
-						bFilledBuffer = false;
-						//convert buffered signed 16-bit data into signed floating point complex type( with 0 magnitude in the imaginary component)
-						float cfft_input[MIC_BUF_SAMPLE_LEN*2];
-						float cfft_output[MIC_BUF_SAMPLE_LEN];
-						for(unsigned int i = 0 ; i < MIC_BUF_SAMPLE_LEN ; i++)
-						{
-								cfft_input[i*2] = (float)pPdmFilledBuffer[i] / LARGEST_POSITIVE_16B_NUM;	// Normalizes all data values between -1 and 1
-								cfft_input[(i*2)+1] = 0x0;
-						};
+	uint8_t orange_r[UPDATE_LED_LOOP] = {184,160,136,114,92,72,54,38,25,14,6,2};//{230,215,162,103,47,10,0,22,68,127,183,220};
+	uint8_t orange_g[UPDATE_LED_LOOP] = {32,28,24,20,16,13,9,7,4,2,1,1};//{40,37,28,18,8,2,0,4,12,22,32,38};
+	uint8_t orange_b = 0;
+	uint8_t white_rgb[UPDATE_LED_LOOP] = {112,97,83,69,56,44,33,23,15,9,4,1};//{140,131,98,63,29,6,0,13,42,77,111,134};
 
+	int wave_idx = loopCount % UPDATE_LED_LOOP;
+	if(wave_idx == 0){	//every 6th iteration, switch colors
+		if(bOrange == true)
+			bOrange = false;
+		else
+			bOrange = true;
+	}
 
-						/*static void fft_process(float32_t *                   p_input,
-						                        const arm_cfft_instance_f32 * p_input_struct,
-						                        float32_t *                   p_output,
-						                        uint16_t                      output_size)*/
-					    arm_cfft_f32(&arm_cfft_sR_f32_len256, cfft_input, 0, 1); 						// Perform cfft on buffered data
-					    arm_cmplx_mag_f32(cfft_input, cfft_output, MIC_CFFT_SIZE);						// Calculate the magnitude at each bin using Complex Magnitude Module function.
-
-						//from magnitudes, set pixel colors
-						//fromFftMagToColorArray( cfft_output , MIC_CFFT_SIZE , pLedStrip);
-						updateLeds();
-					}
-				}break;
-			}
+	// every 12th iteration, we need to update our position, grab the new led idx
+	if( wave_idx == 0){
+		pFs->readLine(sGpsData);
+		if(sGpsData[0] == '\0'){
+			pFs->rewindToBegin();
+			pFs->readLine(sGpsData);
+			pFs->readLine(sGpsData);
 		}
+
+		char * pTok;
+		pTok = strtok(sGpsData, ","); 	//pTok -> 1st
+		strcpy(sCurrLat,pTok);
+		pTok = strtok(NULL, ",");		//2nd
+		strcpy(sCurrLon,pTok);
+		pTok = strtok(NULL, ",");		//3rd = led index
+
+		track_pos_idx = atoi(pTok);
+	}
+
+	setAllLeds(0,0,0);
+	uint8_t r,g,b;
+	if(bOrange == true){
+		r=orange_r[wave_idx];
+		g=orange_g[wave_idx];
+		b=orange_b;
+
+
+		if(wave_idx != 0){
+			int back_wave_idx,front_wave_idx;
+			back_wave_idx = track_pos_idx-(wave_idx>>1);
+			front_wave_idx = track_pos_idx+(wave_idx>>1);
+			if(back_wave_idx < 0 )
+				back_wave_idx += 206;
+			if(front_wave_idx > 205 )
+				front_wave_idx -= 206;
+
+			setLed(back_wave_idx, r>>1, g>>1, b>>1);
+			setLed(front_wave_idx, r>>1, g>>1, b>>1);
+		}
+	}else{
+		r=white_rgb[wave_idx];
+		g=r;
+		b=r;
+
+		if(wave_idx != 0){
+			int back_wave_idx,front_wave_idx;
+			back_wave_idx = track_pos_idx-(wave_idx>>1);
+			front_wave_idx = track_pos_idx+(wave_idx>>1);
+			if(back_wave_idx < 0 )
+				back_wave_idx += 206;
+			if(front_wave_idx > 205 )
+				front_wave_idx -= 206;
+
+			setLed(back_wave_idx, r>>2, g>>2, b>>2);
+			setLed(front_wave_idx, r>>2, g>>2, b>>2);
+		}
+	}
+
+	setLed(track_pos_idx, r, g, b);
+
+	updateLeds();
+	//static int slow_wave_loop = 0;
+	//if(slow_wave_loop % 2 == 0)
+		loopCount++;
+	//slow_wave_loop++;
+	//check to see if we need to send this current lat long to the nucleo board
+	if( !(NRF_GPIO->IN & (1<<BUTTON_1))){
+		pUart->send(sCurrLat, strlen(sCurrLat));
+		char delim = ',';
+		pUart->send(&delim, 1);
+		pUart->send(sCurrLon, strlen(sCurrLon));
+		delim = '\n';
+		pUart->send(&delim, 1);
 	}
 }
 void LedModule::startOperations(void)
 {
-	/*
-	//up the back
-	for(uint32_t colIndex=0; colIndex<(BACK_BEG_LEN+BACK_SIDE_LEN); colIndex++)
-	{
-		nrf_delay_ms(20);
-		setAllLeds(0,0,0);
-		if(colIndex < BACK_BEG_LEN){
-			*(pSuspenders.pBackL[0][colIndex]) = {255,255,255,0};
-			*(pSuspenders.pBackR[0][colIndex]) = {255,255,255,0};
-		}else
-		{
-			*(pSuspenders.pBackL[0][colIndex]) = {255,255,255,0};
-			*(pSuspenders.pBackR[0][colIndex]) = {255,255,255,0};
-			*(pSuspenders.pBackL[1][colIndex]) = {255,255,255,0};
-			*(pSuspenders.pBackR[1][colIndex]) = {255,255,255,0};
-		}
-		updateLeds();
-	}
+	pUart->init();
 
-	//down the front
-	uint32_t colIndex=FRONT_LENGTH-1;
-	do
-	{
-		nrf_delay_ms(20);
-		setAllLeds(0,0,0);
-		*(pSuspenders.pFrontL[0][colIndex]) = {255,255,255,0};
-		*(pSuspenders.pFrontR[0][colIndex]) = {255,255,255,0};
-		*(pSuspenders.pFrontL[1][colIndex]) = {255,255,255,0};
-		*(pSuspenders.pFrontR[1][colIndex--]) = {255,255,255,0};
-		updateLeds();
-	}while(colIndex != 0);
-
-	nrf_delay_ms(20);
-	setAllLeds(0,0,0);
-	*(pSuspenders.pFrontL[0][0]) = {255,255,255,0};
-	*(pSuspenders.pFrontR[0][0]) = {255,255,255,0};
-	*(pSuspenders.pFrontL[1][0]) = {255,255,255,0};
-	*(pSuspenders.pFrontR[1][0]) = {255,255,255,0};
-	updateLeds();
-	*/
-
+	pFs->open_file();
+	char firstLineHeader[256];
+	pFs->readLine(firstLineHeader);	//throw it away
 	nrf_delay_ms(20);
 
 	setAllLeds(0,0,0);
 	updateLeds();
-
-	if(pCurrentSequence->type == MIC_UPDATE)	//if(we are sequence mode is initialized to use the mic, start recording
-	{
-		nrf_drv_pdm_start();
-	}
 }
 
 void LedModule::performOperation(void)
@@ -429,6 +301,19 @@ void LedModule::setLeds(uint8_t *pLedArray, uint32_t updateNumLeds)
 		pLedStrip[ledIdx].r = pLedArray[ledIdx*3];
 		pLedStrip[ledIdx].g = pLedArray[ledIdx*3+1];
 		pLedStrip[ledIdx].b = pLedArray[ledIdx*3+2];
+	}
+}
+void LedModule::setLeds(ledPixel *pLedArray, uint32_t updateNumLeds)
+{
+	uint32_t endLedIdx = updateNumLeds;
+	if(endLedIdx > numLedsTotal)
+		endLedIdx = numLedsTotal;
+	for(uint32_t ledIdx=0; ledIdx < endLedIdx; ledIdx++)
+	{
+		pLedStrip[ledIdx].dummy = 0;
+		pLedStrip[ledIdx].r = pLedArray[ledIdx].r;
+		pLedStrip[ledIdx].g = pLedArray[ledIdx].g;
+		pLedStrip[ledIdx].b = pLedArray[ledIdx].b;
 	}
 }
 void LedModule::setAllLeds(uint8_t rVal, uint8_t gVal, uint8_t bVal)

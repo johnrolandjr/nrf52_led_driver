@@ -8,6 +8,8 @@
 #include "fatfs.h"
 #include "fatfs_c_api.h"
 
+#define GPS_FILE_NAME "sim.txt"
+
 extern "C"{
 
 }
@@ -116,7 +118,7 @@ BYTE fatfs::init(void)
 					spi_s->pBus->busMB_Read(r3, 4);
 					__SD_Deassert();
 
-					if( r3[0] & 0xc0 == 0xc0 ){
+					if( (r3[0] & 0xc0) == 0xc0 ){
 						//CCS=1 means that the card is SDHC or SDXC.
 					}
 				}
@@ -134,10 +136,19 @@ BYTE fatfs::init(void)
 	}
 
 	//spi_s->pBus->changeBusSpeed(freq_8Mhz);
-
 	return 0;
 }
 
+int fatfs::open_file(){
+	//open the file that we wish to read from
+	FRESULT ff_result;
+	ff_result = f_open(&file, GPS_FILE_NAME, FA_READ);
+	if (ff_result != FR_OK)
+	{
+		return 1;
+	}
+	return 0;
+}
 DRESULT	fatfs::read_sectors(BYTE* pRx, DWORD startSector, BYTE sectorCnt)
 {
 	DRESULT res;
@@ -171,12 +182,14 @@ DRESULT fatfs::read_sector(BYTE* pRx, DWORD sectorIdx)
 		spi_s->pBus->busWrite(dummy, 2);
 		__SD_Deassert();
 
+		return RES_OK;
 	}else{
 		return RES_ERROR;
 	}
 }
 
 #define FILE_NAME   "TEST.BMP"
+
 #define TEST_STRING "SD card example.\r\n"
 
 /**
@@ -190,7 +203,6 @@ int fatfs::unittest(void)
 	static FILINFO fno;
 	static FIL file;
 
-	uint32_t bytes_written;
 	FRESULT ff_result;
 
 	ff_result = f_mount(&fs, "", 1);
@@ -301,6 +313,7 @@ void fatfs::loadPixelDataFromBmp(frameCycle* pAnimStruct, uint32_t imageIdx)
 	FRESULT ff_result;
 	unsigned int bytesRead;
 
+	/*
 	ff_result = f_open(&file, FILE_NAME, FA_READ);
 	if (ff_result != FR_OK)
 	{
@@ -348,6 +361,16 @@ void fatfs::loadPixelDataFromBmp(frameCycle* pAnimStruct, uint32_t imageIdx)
 	pAnimStruct->numLeds = bmpInfoHead.imgWidth;
 	pAnimStruct->pPixels = pBmpPixelData;
 	(void) f_close(&file);
+	*/
+}
+
+void fatfs::readLine(char * pLine){
+	char * pTest;
+	pTest = f_gets(pLine, 256, &file);
+}
+
+void fatfs::rewindToBegin(){
+	f_rewind(&file);
 }
 
 //c assessor functions

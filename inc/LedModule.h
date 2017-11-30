@@ -6,9 +6,13 @@
 #include <Node.h>
 #include <stdlib.h>
 #include <SPI_bus.h>
+#include <Serial.h>
 #include <fatfs.h>
+#include <LIS3DH.h>
 #include <nrf_drv_pdm.h>
 #include <queue>
+#include <stdio.h>
+#include <string.h>
 
 //led patterns
 #include "animation_structs.h"
@@ -137,7 +141,8 @@ typedef enum
 	FRAME_CYCLE,
 	STROBE,
 	MOVING_PATTERN,
-	MIC_UPDATE
+	MIC_UPDATE,
+	SEND_PULSE
 }ledSquenceTypes;
 
 typedef struct
@@ -151,6 +156,10 @@ typedef struct
 	pixelWithPos* pattern;
 	uint32_t numPixels;
 }movingPattern;
+typedef struct{
+	ledPixel *leds;
+	uint32_t numLeds;
+}pulseState;
 
 typedef struct
 {
@@ -160,17 +169,23 @@ typedef struct
 		colorCycle *pColorCycle;
 		frameCycle *pFrameCycle;
 		movingPattern *pMovePatt;
+		pulseState *pPulseState;
 	}sequenceData;
 }ledSequence;
 
-#define LED_PERIOD_TIME_MS 50
+#define UPDATE_LED_LOOP 12
+#define UPDATE_LED_PERIOD_MS 50
+#define GPS_UPDATE_PERIOD_MS 600
 
 class LedModule: public Module
 {
 	public:
 		SPI_bus* pSpiBus;
+		Serial* pUart;
 		fatfs* pFs;
+		Adafruit_LIS3DH* pAcc;
 		u32 startTimeTicks=0;
+
 
 	private:
 		ledPixel *pLedStrip;
@@ -187,8 +202,12 @@ class LedModule: public Module
 		uint32_t bufferRdIdx = 0;
 		uint32_t bufferWrIdx = 0;
 		uint32_t buffersFilled = 0;
+
+		char sGpsData[256];
+		char sCurrLat[256];
+		char sCurrLon[256];
 	public:
-		LedModule(LedWrapper* pLed, const char* name, uint32_t numLedsInStrip_back, uint32_t numLedsInStrip_sides);
+		LedModule(LedWrapper* pLed, const char* name, uint32_t numLedsInStrip_track);
 
 	public:
 		void BleEventHandler(ble_evt_t* bleEvent);
@@ -205,6 +224,7 @@ class LedModule: public Module
 		void updateUpToLed(uint32_t ledEndIndex);
 		void setLed(uint32_t ledIndex, uint8_t rVal, uint8_t gVal, uint8_t bVal);
 		void setLeds(uint8_t *pLedArray, uint32_t updateNumLeds);
+		void setLeds(ledPixel *pLedArray, uint32_t updateNumLeds);
 		void setAllLeds(uint8_t rVal, uint8_t gVal, uint8_t bVal);
 		void overwriteLeds(updatePixel *pArrayUpdate, uint32_t updateLen);
 

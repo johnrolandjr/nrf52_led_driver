@@ -84,11 +84,7 @@ int main(void)
 	pLed->Toggle();
 	pLed->Toggle();
 
-	//pFlash = new FlashDataStorage();
-
-	mainModule = new LedModule(pLed, "ws2812", Config->numLeds_back, Config->numLeds_side);
-
-	mainModule->startOperations();
+	mainModule = new LedModule(pLed, "ws2812", Config->numLeds_track);
 
 	//Initialialize the SoftDevice and the BLE stack
 #ifndef DISABLE_BLE

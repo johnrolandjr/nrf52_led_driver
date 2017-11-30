@@ -16,5 +16,4 @@ typedef struct
 	uint32_t currentFrameIdx;
 }frameCycle;
 
-
 #endif /* ANIMATION_STRUCTS_H_ */
